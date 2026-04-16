@@ -11,7 +11,14 @@ import { ImportStatement } from "./types";
  *
  * Skipped:
  *   import Default from 'mod'         <- no named imports
+ *
+ * Security: multi-line collection is capped at MAX_IMPORT_LINES to
+ * prevent memory exhaustion from malformed or adversarial MDX files.
  */
+
+/** Maximum number of lines a single import statement may span. */
+const MAX_IMPORT_LINES = 50;
+
 export function parseImports(text: string): ImportStatement[] {
   const results: ImportStatement[] = [];
   const lines = text.split("\n");
@@ -24,10 +31,13 @@ export function parseImports(text: string): ImportStatement[] {
       continue;
     }
 
-    // Collect continuation lines until `from '...'` is complete
+    // Collect continuation lines until `from '...'` is complete,
+    // but never beyond MAX_IMPORT_LINES to prevent memory exhaustion.
     let raw = line;
     let j = i;
-    while (!raw.match(/from\s+['"][^'"]+['"]/) && j + 1 < lines.length) {
+    const limit = Math.min(i + MAX_IMPORT_LINES, lines.length - 1);
+
+    while (!hasFromClause(raw) && j < limit) {
       j++;
       raw += " " + lines[j];
     }
@@ -38,6 +48,19 @@ export function parseImports(text: string): ImportStatement[] {
   }
 
   return results;
+}
+
+/**
+ * Checks whether `raw` contains a complete `from '...'` clause.
+ *
+ * Uses a simple indexOf-based approach instead of a regex on a
+ * potentially huge string to avoid ReDoS risk.
+ */
+function hasFromClause(raw: string): boolean {
+  const fromIdx = raw.indexOf(" from ");
+  if (fromIdx === -1) return false;
+  const afterFrom = raw.slice(fromIdx + 6).trimStart();
+  return afterFrom.startsWith("'") || afterFrom.startsWith('"');
 }
 
 function parseSingleImport(raw: string, line: number): ImportStatement | null {

@@ -68,16 +68,97 @@ function findTsconfig(projectRoot: string): string | null {
  *
  * Handles:
  *   // single-line comments
- *   /* block comments *\/
+ *   block comments (slash-star ... star-slash)
  *   trailing commas  { "a": 1, }
+ *
+ * Security: uses a character-level state machine so that comment
+ * sequences inside string literals (e.g. "https://example.com") are
+ * never mistakenly stripped. The previous regex-only approach would
+ * erase `//` inside strings, corrupting string values.
  */
 function parseJsonWithComments(raw: string): TsConfig | null {
   try {
-    let cleaned = raw.replace(/\/\*[\s\S]*?\*\//g, "");
-    cleaned = cleaned.replace(/\/\/[^\n]*/g, "");
-    cleaned = cleaned.replace(/,\s*([\]}])/g, "$1");
-    return JSON.parse(cleaned) as TsConfig;
+    const cleaned = stripJsonComments(raw);
+    // Remove trailing commas before ] or }
+    const noTrailing = cleaned.replace(/,(\s*[}\]])/g, "$1");
+    return JSON.parse(noTrailing) as TsConfig;
   } catch {
     return null;
   }
+}
+
+/**
+ * Strip `//` and block comments from a JSON-with-comments string,
+ * correctly skipping content inside double-quoted string literals.
+ *
+ * State machine states:
+ *   "code"         — normal JSON tokens
+ *   "string"       — inside a "..." value
+ *   "lineComment"  — after //
+ *   "blockComment" — inside slash-star ... star-slash
+ */
+function stripJsonComments(input: string): string {
+  type State = "code" | "string" | "lineComment" | "blockComment";
+  let state: State = "code";
+  let out = "";
+  let i = 0;
+
+  while (i < input.length) {
+    const ch = input[i];
+    const next = input[i + 1];
+
+    switch (state) {
+      case "code":
+        if (ch === '"') {
+          state = "string";
+          out += ch;
+        } else if (ch === "/" && next === "/") {
+          state = "lineComment";
+          i += 2;
+          continue;
+        } else if (ch === "/" && next === "*") {
+          state = "blockComment";
+          i += 2;
+          continue;
+        } else {
+          out += ch;
+        }
+        break;
+
+      case "string":
+        out += ch;
+        if (ch === "\\" && next !== undefined) {
+          // Consume escaped character so \" doesn't end the string
+          out += next;
+          i += 2;
+          continue;
+        }
+        if (ch === '"') {
+          state = "code";
+        }
+        break;
+
+      case "lineComment":
+        if (ch === "\n") {
+          // Preserve newline so line numbers stay accurate
+          out += "\n";
+          state = "code";
+        }
+        break;
+
+      case "blockComment":
+        if (ch === "*" && next === "/") {
+          state = "code";
+          i += 2;
+          continue;
+        }
+        // Preserve newlines inside block comments for line accuracy
+        if (ch === "\n") out += "\n";
+        break;
+    }
+
+    i++;
+  }
+
+  return out;
 }

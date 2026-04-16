@@ -17,6 +17,9 @@ const EXTENSIONS = [
  *
  * Returns null if the specifier cannot be resolved to a local file
  * (e.g. a bare package name with no node_modules found).
+ *
+ * Security: resolved paths are always validated to remain within
+ * the project root to prevent path traversal attacks.
  */
 export function resolveModulePath(
   specifier: string,
@@ -24,14 +27,62 @@ export function resolveModulePath(
   aliases: PathAliases,
   projectRoot: string | null
 ): string | null {
+  let resolved: string | null = null;
+
   if (specifier.startsWith(".")) {
-    return resolveRelative(specifier, fromFile);
+    resolved = resolveRelative(specifier, fromFile);
+  } else {
+    const aliasResolved = resolveAlias(specifier, aliases);
+    if (aliasResolved !== null) {
+      resolved = aliasResolved;
+    } else {
+      resolved = resolveFromNodeModules(specifier, fromFile, projectRoot);
+    }
   }
 
-  const aliasResolved = resolveAlias(specifier, aliases);
-  if (aliasResolved !== null) return aliasResolved;
+  // Security: reject any path that escapes the project root
+  if (resolved !== null && projectRoot !== null) {
+    if (!isWithinAllowedRoots(resolved, fromFile, projectRoot)) {
+      return null;
+    }
+  }
 
-  return resolveFromNodeModules(specifier, fromFile, projectRoot);
+  return resolved;
+}
+
+/**
+ * Returns true if `resolved` is within the project root.
+ *
+ * Uses fs.realpathSync() on both sides so that pnpm's symlinked
+ * virtual store (node_modules/.pnpm/<pkg>/node_modules/<pkg>/) is
+ * correctly compared against the real project root path.
+ *
+ * npm/yarn: resolved path is already real — realpathSync is a no-op.
+ * pnpm:     resolved path is a symlink inside node_modules that points
+ *           to .pnpm/<pkg>@<ver>/node_modules/<pkg>/ — still under
+ *           the project root, so the prefix check holds after expansion.
+ *
+ * This prevents path traversal: e.g. `../../etc/passwd` resolving
+ * outside the project is rejected.
+ */
+function isWithinAllowedRoots(
+  resolved: string,
+  _fromFile: string,
+  projectRoot: string
+): boolean {
+  try {
+    const realProject = fs.realpathSync(path.resolve(projectRoot)) + path.sep;
+    const realResolved = fs.realpathSync(path.resolve(resolved));
+    return realResolved.startsWith(realProject);
+  } catch {
+    // realpathSync throws if the path does not exist yet (e.g. extension
+    // probing for a file that will never exist). Fall back to a plain
+    // string check so legitimate missing-module errors are still reported
+    // rather than silently swallowed.
+    const absProject = path.resolve(projectRoot) + path.sep;
+    const absResolved = path.resolve(resolved);
+    return absResolved.startsWith(absProject);
+  }
 }
 
 function resolveRelative(specifier: string, fromFile: string): string {
@@ -66,17 +117,22 @@ function resolveFromNodeModules(
 
 /**
  * Walk up the directory tree from `fromFile` collecting every
- * node_modules directory found, stopping at projectRoot.
+ * node_modules directory found, stopping at projectRoot (or fs root).
+ *
+ * Security: the loop now always terminates at projectRoot when provided,
+ * limiting the search boundary and preventing unbounded traversal.
  */
 function collectNodeModuleRoots(fromFile: string, projectRoot: string | null): string[] {
   const roots: string[] = [];
   let dir = path.dirname(fromFile);
-  const stopAt = projectRoot ?? path.parse(dir).root;
+  // If projectRoot is known, stop there; otherwise stop at fs root.
+  // Importantly, we do NOT walk past fs root under any circumstance.
+  const stopAt = projectRoot ? path.resolve(projectRoot) : path.parse(dir).root;
 
   while (true) {
     const candidate = path.join(dir, "node_modules");
     if (fs.existsSync(candidate)) roots.push(candidate);
-    if (dir === stopAt || dir === path.parse(dir).root) break;
+    if (path.resolve(dir) === stopAt || dir === path.parse(dir).root) break;
     dir = path.dirname(dir);
   }
 
