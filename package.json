@@ -1,0 +1,19 @@
+{
+  "name": "mdx-tsx-import-checker-root",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w packages/core && npm run build -w packages/cli",
+    "build:core": "npm run build -w packages/core",
+    "build:cli": "npm run build -w packages/cli",
+    "typecheck": "npm run typecheck -w packages/core && npm run typecheck -w packages/cli"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ToruTamahashi/mdx-tsx-import-checker.git"
+  },
+  "license": "MIT",
+  "author": "ToruTamahashi"
+}
