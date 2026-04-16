@@ -7,6 +7,9 @@
     "mdx-tsx-import-checker": "./dist/cli.js"
   },
   "files": ["dist"],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "build": "npm run typecheck && node build.mjs",
     "typecheck": "tsc -p ./tsconfig.json --noEmit",

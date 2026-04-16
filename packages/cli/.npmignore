@@ -1,0 +1,5 @@
+node_modules/
+src/
+*.tsbuildinfo
+tsconfig*.json
+build.mjs
