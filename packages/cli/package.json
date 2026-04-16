@@ -1,6 +1,6 @@
 {
   "name": "mdx-tsx-import-checker",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "CLI tool to validate named imports of React/TSX components in MDX files",
   "main": "./dist/cli.js",
   "bin": {
