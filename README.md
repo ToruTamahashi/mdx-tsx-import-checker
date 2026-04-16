@@ -62,14 +62,6 @@ npx mdx-tsx-import-checker ./src/content/docs --verbose
 
 ---
 
-## VSCode Integration
-
-This package can be used as the backend for a VSCode extension via `child_process`. The extension calls the CLI with `--format json` and converts the output to diagnostics. See the [extension source](./packages/vscode) for reference.
-
-If you have the package installed locally (`npm install -D mdx-tsx-import-checker`), the extension will use the local binary automatically. Otherwise it falls back to `npx`.
-
----
-
 ## Supported Import Types
 
 | Type | Example | Supported |
