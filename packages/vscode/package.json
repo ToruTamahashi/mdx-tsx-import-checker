@@ -2,7 +2,7 @@
   "name": "mdx-tsx-import-checker-vscode",
   "displayName": "MDX TSX Import Checker",
   "description": "Validates named imports of React/TSX components in MDX files",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "publisher": "ToruTamahashi",
   "engines": {
     "vscode": "^1.85.0"

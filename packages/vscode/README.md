@@ -19,10 +19,20 @@ Catches errors like wrong export names or missing files — as you type, without
 
 ## Requirements
 
-This extension delegates checking to the [mdx-tsx-import-checker](https://www.npmjs.com/package/mdx-tsx-import-checker) CLI.
+This extension requires the [mdx-tsx-import-checker](https://www.npmjs.com/package/mdx-tsx-import-checker) CLI to be **installed locally in your project**:
 
-- If the CLI is installed locally (`npm install -D mdx-tsx-import-checker`), it will be used automatically.
-- Otherwise, the extension falls back to `npx mdx-tsx-import-checker` (requires internet access on first run).
+```bash
+npm install -D mdx-tsx-import-checker
+# or
+pnpm add -D mdx-tsx-import-checker
+# or
+yarn add -D mdx-tsx-import-checker
+```
+
+> **Why local install only?**
+> The extension intentionally does not use `npx` to avoid automatically downloading and executing unverified packages. Pinning the version in `package.json` ensures the exact binary is verified via your lockfile.
+
+If the CLI is not installed, the extension will show a warning with a link to the installation docs.
 
 ---
 
