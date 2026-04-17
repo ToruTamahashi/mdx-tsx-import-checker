@@ -16,7 +16,7 @@ interface CheckError {
   message: string;
 }
 
-/** stdout の上限サイズ (5MB) — これを超えたらプロセスを強制終了する */
+/** Maximum stdout size (5MB) — kill the process if exceeded */
 const MAX_STDOUT_BYTES = 5 * 1024 * 1024;
 
 // -----------------------------------------------------------------------
@@ -80,7 +80,11 @@ function validate(
   }
 
   const workspaceRoot = getWorkspaceRoot(doc);
-  const localBin = findLocalBin(workspaceRoot);
+
+  // Search for the binary starting from the MDX file's directory.
+  // This ensures packages/xxx/node_modules/.bin is found correctly in monorepos.
+  const searchCeiling = getWorkspaceCeiling();
+  const localBin = findLocalBin(path.dirname(doc.fileName), searchCeiling);
 
   if (!localBin) {
     vscode.window.showWarningMessage(
@@ -116,27 +120,21 @@ function validate(
 // -----------------------------------------------------------------------
 
 /**
- * ローカルの node_modules/.bin を探す。
+ * Walk up from `fromDir` looking for node_modules/.bin/mdx-tsx-import-checker,
+ * stopping at `ceiling` to prevent executing binaries outside the project.
  *
- * 探索範囲を workspaceRoot 自身に限定する。
- * monorepo で親の node_modules も必要な場合は、
- * VSCode が認識している workspaceFolders の最上位までに制限する。
+ * Starting from the MDX file's directory (rather than the workspace root)
+ * ensures that monorepo sub-package node_modules are found first.
  */
-function findLocalBin(workspaceRoot: string | null): string | null {
-  if (!workspaceRoot) return null;
-
-  // 探索の上限: VSCode のワークスペースフォルダの中で最も上位のパス
-  const searchCeiling = getWorkspaceCeiling();
-
-  let dir = workspaceRoot;
+function findLocalBin(fromDir: string, ceiling: string): string | null {
+  let dir = fromDir;
   const fsRoot = path.parse(dir).root;
 
   while (true) {
     const bin = path.join(dir, "node_modules", ".bin", "mdx-tsx-import-checker");
     if (fs.existsSync(bin)) return bin;
 
-    // 上限に達したら終了
-    if (dir === searchCeiling || dir === fsRoot) break;
+    if (dir === ceiling || dir === fsRoot) break;
     dir = path.dirname(dir);
   }
 
@@ -144,14 +142,14 @@ function findLocalBin(workspaceRoot: string | null): string | null {
 }
 
 /**
- * VSCode が認識しているワークスペースフォルダのうち最も上位のパスを返す。
- * これ以上は遡らないことでプロジェクト外のバイナリ実行を防ぐ。
+ * Returns the highest-level path among all VSCode workspace folders.
+ * Used as the upper boundary for binary search to prevent traversing
+ * outside the project.
  */
 function getWorkspaceCeiling(): string {
   const folders = vscode.workspace.workspaceFolders;
   if (!folders || folders.length === 0) return path.parse(process.cwd()).root;
 
-  // 最も短いパス（= 最上位）を ceiling とする
   return folders
     .map((f) => f.uri.fsPath)
     .reduce((shortest, current) =>
@@ -183,8 +181,8 @@ function runCli(
     let stdoutBytes = 0;
     let stderr = "";
 
-    // Windows でも shell: false で動作させるため、
-    // cmd.exe 経由で明示的に組み立てる
+    // On Windows, use cmd.exe explicitly to avoid shell: true
+    // which would introduce path injection risks.
     const spawnCmd = process.platform === "win32" ? "cmd.exe" : localBin;
     const spawnArgs = process.platform === "win32"
       ? ["/c", localBin, ...args]
@@ -192,12 +190,11 @@ function runCli(
 
     const child = spawn(spawnCmd, spawnArgs, {
       cwd,
-      shell: false, // パスインジェクションリスクを排除
+      shell: false,
     });
 
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.length;
-      // stdout が上限を超えたらプロセスを強制終了
       if (stdoutBytes > MAX_STDOUT_BYTES) {
         child.kill();
         reject(new Error("mdx-tsx-import-checker: stdout exceeded size limit (5MB)"));
@@ -211,7 +208,7 @@ function runCli(
     });
 
     child.on("close", (code) => {
-      // exit code 0 = no errors, 1 = errors found — どちらも正常終了
+      // exit code 0 = no errors, 1 = errors found — both are valid
       if (code !== 0 && code !== 1) {
         reject(new Error(`exited with code ${code}: ${stderr}`));
         return;
@@ -247,6 +244,7 @@ function makeDiagnostic(doc: vscode.TextDocument, err: CheckError): vscode.Diagn
   return diag;
 }
 
+/** Extract the length of the symbol name from messages like `'Foo' is not exported...` */
 function extractSymbolLength(message: string): number {
   const m = message.match(/^'(\w+)'/);
   return m ? m[1].length : 1;
@@ -260,6 +258,7 @@ function getWorkspaceRoot(doc: vscode.TextDocument): string | null {
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
   if (folder) return folder.uri.fsPath;
 
+  // Fallback: walk up from the file's directory looking for project root markers
   let dir = path.dirname(doc.fileName);
   const root = path.parse(dir).root;
   while (dir !== root) {
