@@ -52,7 +52,10 @@ export function checkFile(filePath: string, options: CheckOptions = {}): CheckEr
 
     if (resolvedPath === null) continue;
 
-    if (!fs.existsSync(resolvedPath)) {
+    const stat = fs.existsSync(resolvedPath) ? fs.statSync(resolvedPath) : null;
+
+    if (stat === null || stat.isDirectory()) {
+      log(`    ${stat === null ? "NOT FOUND" : "RESOLVED TO DIRECTORY (no index file)"} → error`);
       errors.push({
         file: filePath,
         line: imp.line + 1,
@@ -63,7 +66,10 @@ export function checkFile(filePath: string, options: CheckOptions = {}): CheckEr
     }
 
     const namedExports = getNamedExports(resolvedPath);
-    if (namedExports === null) continue;
+    if (namedExports === null) {
+      log(`    could not read exports — skipping`);
+      continue;
+    }
     log(`    exports: ${[...namedExports].join(", ")}`);
 
     for (const name of imp.namedImports) {

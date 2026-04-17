@@ -17,9 +17,6 @@ const EXTENSIONS = [
  *
  * Returns null if the specifier cannot be resolved to a local file
  * (e.g. a bare package name with no node_modules found).
- *
- * Security: resolved paths are always validated to remain within
- * the project root to prevent path traversal attacks.
  */
 export function resolveModulePath(
   specifier: string,
@@ -40,9 +37,13 @@ export function resolveModulePath(
     }
   }
 
-  // Security: reject any path that escapes the project root
-  if (resolved !== null && projectRoot !== null) {
-    if (!isWithinAllowedRoots(resolved, fromFile, projectRoot)) {
+  if (resolved === null) return null;
+
+  // Security: reject any path that escapes the project root.
+  // Only check paths that actually exist — non-existent paths are passed
+  // through so that "Cannot find module" errors are still reported.
+  if (projectRoot !== null && fs.existsSync(resolved)) {
+    if (!isWithinAllowedRoots(resolved, projectRoot)) {
       return null;
     }
   }
@@ -53,32 +54,17 @@ export function resolveModulePath(
 /**
  * Returns true if `resolved` is within the project root.
  *
- * Uses fs.realpathSync() on both sides so that pnpm's symlinked
- * virtual store (node_modules/.pnpm/<pkg>/node_modules/<pkg>/) is
- * correctly compared against the real project root path.
- *
- * npm/yarn: resolved path is already real — realpathSync is a no-op.
- * pnpm:     resolved path is a symlink inside node_modules that points
- *           to .pnpm/<pkg>@<ver>/node_modules/<pkg>/ — still under
- *           the project root, so the prefix check holds after expansion.
- *
- * This prevents path traversal: e.g. `../../etc/passwd` resolving
- * outside the project is rejected.
+ * Uses fs.realpathSync() to resolve symlinks (e.g. pnpm virtual store).
+ * Only called when `resolved` is known to exist, so realpathSync will
+ * not throw on the resolved path.
  */
-function isWithinAllowedRoots(
-  resolved: string,
-  _fromFile: string,
-  projectRoot: string
-): boolean {
+function isWithinAllowedRoots(resolved: string, projectRoot: string): boolean {
   try {
     const realProject = fs.realpathSync(path.resolve(projectRoot)) + path.sep;
     const realResolved = fs.realpathSync(path.resolve(resolved));
     return realResolved.startsWith(realProject);
   } catch {
-    // realpathSync throws if the path does not exist yet (e.g. extension
-    // probing for a file that will never exist). Fall back to a plain
-    // string check so legitimate missing-module errors are still reported
-    // rather than silently swallowed.
+    // Fallback to plain string comparison
     const absProject = path.resolve(projectRoot) + path.sep;
     const absResolved = path.resolve(resolved);
     return absResolved.startsWith(absProject);
@@ -115,18 +101,9 @@ function resolveFromNodeModules(
   return null;
 }
 
-/**
- * Walk up the directory tree from `fromFile` collecting every
- * node_modules directory found, stopping at projectRoot (or fs root).
- *
- * Security: the loop now always terminates at projectRoot when provided,
- * limiting the search boundary and preventing unbounded traversal.
- */
 function collectNodeModuleRoots(fromFile: string, projectRoot: string | null): string[] {
   const roots: string[] = [];
   let dir = path.dirname(fromFile);
-  // If projectRoot is known, stop there; otherwise stop at fs root.
-  // Importantly, we do NOT walk past fs root under any circumstance.
   const stopAt = projectRoot ? path.resolve(projectRoot) : path.parse(dir).root;
 
   while (true) {
@@ -153,7 +130,6 @@ function tryResolvePackage(specifier: string, nmRoot: string): string | null {
   return resolvePackageRoot(pkgDir, pkgJson);
 }
 
-/** Split `@scope/pkg/sub` → `{ pkgName: "@scope/pkg", subPath: "sub" }` */
 function splitSpecifier(specifier: string): { pkgName: string; subPath: string } {
   if (specifier.startsWith("@")) {
     const parts = specifier.split("/");
@@ -184,13 +160,11 @@ function resolveSubPath(
   pkgDir: string,
   pkgJson: Record<string, unknown>
 ): string | null {
-  // 1. Try package.json "exports" map
   const exportsField = pkgJson["exports"] as Record<string, unknown> | undefined;
   if (exportsField) {
     const resolved = resolveExportsField(exportsField, "./" + subPath, pkgDir);
     if (resolved) return resolved;
   }
-  // 2. Fall back to direct file path
   return resolveWithExtensions(path.join(pkgDir, subPath));
 }
 
@@ -198,7 +172,6 @@ function resolvePackageRoot(
   pkgDir: string,
   pkgJson: Record<string, unknown>
 ): string | null {
-  // 1. "types" / "typings"
   for (const field of ["types", "typings"]) {
     const entry = pkgJson[field] as string | undefined;
     if (entry) {
@@ -206,26 +179,22 @@ function resolvePackageRoot(
       if (fs.existsSync(candidate)) return candidate;
     }
   }
-  // 2. exports["."]
+
   const exportsField = pkgJson["exports"] as Record<string, unknown> | undefined;
   if (exportsField) {
     const resolved = resolveExportsField(exportsField, ".", pkgDir);
     if (resolved) return resolved;
   }
-  // 3. "main"
+
   const main = pkgJson["main"] as string | undefined;
   if (main) {
     const candidate = path.resolve(pkgDir, main);
     if (fs.existsSync(candidate)) return candidate;
   }
-  // 4. index file
+
   return resolveWithExtensions(path.join(pkgDir, "index"));
 }
 
-/**
- * Resolve a key from a package.json `exports` field.
- * Condition priority: types > import > require > default
- */
 function resolveExportsField(
   exportsField: Record<string, unknown>,
   key: string,
@@ -270,10 +239,6 @@ export function resolveWithExtensions(base: string): string {
   return base;
 }
 
-/**
- * Walk up from `fromFile` looking for tsconfig.json / package.json / .git
- * to determine the project root.
- */
 export function findProjectRoot(fromFile: string): string | null {
   let dir = path.dirname(fromFile);
   const root = path.parse(dir).root;
