@@ -13,11 +13,11 @@ Catches errors like wrong export names or missing files — before you run the d
 ## Installation
 
 ```bash
-# Run without installing
-npx mdx-tsx-import-checker <path>
-
-# Or install locally
+# Install locally (recommended — version is pinned and verified via lockfile)
 npm install -D mdx-tsx-import-checker
+
+# Or run without installing
+npx mdx-tsx-import-checker <path>
 ```
 
 ---
@@ -68,6 +68,8 @@ npx mdx-tsx-import-checker ./src/content/docs --verbose
 ## VSCode Extension
 
 Also available as a [VSCode extension](https://marketplace.visualstudio.com/items?itemName=ToruTamahashi.mdx-tsx-import-checker-vscode) for inline diagnostics as you type.
+
+The extension requires the CLI to be installed locally (`npm install -D mdx-tsx-import-checker`). It does not use `npx` to avoid executing unverified packages.
 
 ---
 
