@@ -25,5 +25,8 @@ jobs:
       - name: Build cli
         run: npm run build:cli
 
-      - name: Typecheck all
+      - name: Build vscode
+        run: npm run build:vscode
+
+      - name: Typecheck
         run: npm run typecheck

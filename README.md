@@ -10,7 +10,19 @@ Catches errors like wrong export names or missing files — before you run the d
 
 ---
 
-## Installation
+## Packages
+
+| Package | Description |
+|---|---|
+| [`mdx-tsx-import-checker`](./packages/cli) | CLI tool — use in CI or pre-commit hooks |
+| [`mdx-tsx-import-checker-vscode`](./packages/vscode) | VSCode extension — inline diagnostics as you type |
+| [`@mdx-tsx-import-checker/core`](./packages/core) | Core logic (bundled into CLI, not published separately) |
+
+---
+
+## CLI
+
+### Installation
 
 ```bash
 # Run without installing
@@ -20,9 +32,7 @@ npx mdx-tsx-import-checker <path>
 npm install -D mdx-tsx-import-checker
 ```
 
----
-
-## Usage
+### Usage
 
 ```bash
 # Check a directory (recursive)
@@ -36,6 +46,9 @@ npx mdx-tsx-import-checker ./src/content/docs --format pretty   # default
 npx mdx-tsx-import-checker ./src/content/docs --format github   # GitHub Actions annotations
 npx mdx-tsx-import-checker ./src/content/docs --format json     # machine-readable JSON
 
+# Disable color output
+npx mdx-tsx-import-checker ./src/content/docs --no-color
+
 # Verbose debug output
 npx mdx-tsx-import-checker ./src/content/docs --verbose
 ```
@@ -47,11 +60,9 @@ npx mdx-tsx-import-checker ./src/content/docs --verbose
 | `0` | No errors found |
 | `1` | One or more import errors found |
 
----
+### CI Integration
 
-## CI Integration
-
-### GitHub Actions
+**GitHub Actions:**
 
 ```yaml
 - name: Check MDX imports
@@ -59,6 +70,16 @@ npx mdx-tsx-import-checker ./src/content/docs --verbose
 ```
 
 `--format github` outputs [workflow annotations](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/workflow-commands-for-github-actions#setting-an-error-message) that appear inline in pull request diffs.
+
+---
+
+## VSCode Extension
+
+Install from the [VSCode Marketplace](https://marketplace.visualstudio.com/items?itemName=ToruTamahashi.mdx-tsx-import-checker-vscode).
+
+The extension delegates to the CLI under the hood:
+- If `mdx-tsx-import-checker` is installed locally (`npm install -D`), it uses that.
+- Otherwise it falls back to `npx mdx-tsx-import-checker` automatically.
 
 ---
 
@@ -75,10 +96,10 @@ npx mdx-tsx-import-checker ./src/content/docs --verbose
 
 The following import targets are **not supported** and will be silently skipped:
 
-- `.astro` components
-- `.svelte` / `.vue` components
+- `.astro` / `.svelte` / `.vue` components
 - CSS modules, images, and other non-JS assets
 - Dynamic imports (`await import(...)`)
+- Imports inside fenced code blocks (` ``` `)
 
 Only TypeScript/JavaScript files (`.ts`, `.tsx`, `.js`, `.jsx`, `.d.ts`, `.mjs`, `.cjs`) are analyzed for named exports.
 
@@ -88,11 +109,10 @@ Only TypeScript/JavaScript files (`.ts`, `.tsx`, `.js`, `.jsx`, `.d.ts`, `.mjs`,
 
 ```
 packages/
-├── core/   # Core logic (import parsing, module resolution, export extraction)
-└── cli/    # CLI entry point — core is bundled in, no runtime dependencies
+├── core/    # Core logic (import parsing, module resolution, export extraction)
+├── cli/     # CLI — core is bundled in, no runtime dependencies
+└── vscode/  # VSCode extension — calls CLI via child_process, no direct core dependency
 ```
-
-`core` is not published to npm separately. It is bundled into the CLI at build time.
 
 ---
 

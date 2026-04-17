@@ -5,14 +5,16 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w packages/core && npm run build -w packages/cli",
+    "build": "npm run build -w packages/core && npm run build -w packages/cli && npm run build -w packages/vscode",
     "build:core": "npm run build -w packages/core",
     "build:cli": "npm run build -w packages/cli",
-    "typecheck": "npm run typecheck -w packages/core && npm run typecheck -w packages/cli"
+    "build:vscode": "npm run build -w packages/vscode",
+    "typecheck": "npm run typecheck -w packages/core && npm run typecheck -w packages/cli",
+    "package:vscode": "npm run package -w packages/vscode"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ToruTamahashi/mdx-tsx-import-checker.git"
+    "url": "git+https://github.com/ToruTamahashi/mdx-import-checker.git"
   },
   "license": "MIT",
   "author": "ToruTamahashi"

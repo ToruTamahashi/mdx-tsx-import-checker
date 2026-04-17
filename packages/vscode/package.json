@@ -1,0 +1,52 @@
+{
+  "name": "mdx-tsx-import-checker-vscode",
+  "displayName": "MDX TSX Import Checker",
+  "description": "Validates named imports of React/TSX components in MDX files",
+  "version": "0.1.0",
+  "publisher": "ToruTamahashi",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Linters"],
+  "keywords": ["mdx", "tsx", "react", "import", "checker", "lint"],
+  "activationEvents": [
+    "onLanguage:mdx",
+    "workspaceContains:**/*.mdx"
+  ],
+  "main": "./dist/extension.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ToruTamahashi/mdx-import-checker.git"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "MDX TSX Import Checker",
+      "properties": {
+        "mdxImportChecker.enable": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable/disable MDX TSX import checking"
+        },
+        "mdxImportChecker.tsconfigPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to tsconfig.json relative to workspace root. Leave empty to auto-detect."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p ./tsconfig.json",
+    "watch": "tsc -p ./tsconfig.json --watch",
+    "vscode:prepublish": "npm run build",
+    "package": "vsce package --no-dependencies",
+    "publish": "vsce publish --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "@vscode/vsce": "^2.0.0",
+    "typescript": "^5.0.0"
+  },
+  "license": "MIT"
+}

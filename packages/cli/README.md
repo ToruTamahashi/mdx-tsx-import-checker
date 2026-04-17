@@ -36,11 +36,11 @@ npx mdx-tsx-import-checker ./src/content/docs --format pretty   # default
 npx mdx-tsx-import-checker ./src/content/docs --format github   # GitHub Actions annotations
 npx mdx-tsx-import-checker ./src/content/docs --format json     # machine-readable JSON
 
-# Verbose debug output
-npx mdx-tsx-import-checker ./src/content/docs --verbose
-
 # Disable color output
 npx mdx-tsx-import-checker ./src/content/docs --no-color
+
+# Verbose debug output
+npx mdx-tsx-import-checker ./src/content/docs --verbose
 ```
 
 ### Exit codes
@@ -65,6 +65,12 @@ npx mdx-tsx-import-checker ./src/content/docs --no-color
 
 ---
 
+## VSCode Extension
+
+Also available as a [VSCode extension](https://marketplace.visualstudio.com/items?itemName=ToruTamahashi.mdx-tsx-import-checker-vscode) for inline diagnostics as you type.
+
+---
+
 ## Supported Import Types
 
 | Type | Example | Supported |
@@ -78,10 +84,10 @@ npx mdx-tsx-import-checker ./src/content/docs --no-color
 
 The following import targets are **not supported** and will be silently skipped:
 
-- `.astro` components
-- `.svelte` / `.vue` components
+- `.astro` / `.svelte` / `.vue` components
 - CSS modules, images, and other non-JS assets
 - Dynamic imports (`await import(...)`)
+- Imports inside fenced code blocks (` ``` `)
 
 Only TypeScript/JavaScript files (`.ts`, `.tsx`, `.js`, `.jsx`, `.d.ts`, `.mjs`, `.cjs`) are analyzed for named exports.
 

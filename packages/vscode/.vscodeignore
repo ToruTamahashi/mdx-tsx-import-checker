@@ -1,0 +1,7 @@
+src/**
+node_modules/**
+tsconfig.json
+*.tsbuildinfo
+
+# monorepo: 親ディレクトリが含まれないように除外
+../**
