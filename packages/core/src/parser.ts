@@ -25,7 +25,6 @@ export function parseImports(text: string): ImportStatement[] {
   let i = 0;
 
   while (i < lines.length) {
-    // Skip lines that are inside a fenced or indented code block
     if (codeBlockLines.has(i)) {
       i++;
       continue;
@@ -48,7 +47,8 @@ export function parseImports(text: string): ImportStatement[] {
       raw += " " + lines[j];
     }
 
-    const parsed = parseSingleImport(raw, i);
+    // j is the 0-based line number of the line containing `from "..."`
+    const parsed = parseSingleImport(raw, i, j);
     if (parsed) results.push(parsed);
     i = j + 1;
   }
@@ -62,7 +62,6 @@ export function parseImports(text: string): ImportStatement[] {
  * Handles:
  *   1. Fenced code blocks:  ``` or ~~~ (with optional language tag)
  *   2. Indented code blocks: lines starting with 4 spaces or a tab
- *      (only outside of fenced blocks, to match CommonMark spec)
  */
 function buildCodeBlockSet(lines: string[]): Set<number> {
   const skipped = new Set<number>();
@@ -75,7 +74,6 @@ function buildCodeBlockSet(lines: string[]): Set<number> {
 
     if (inFencedBlock) {
       skipped.add(i);
-      // Check for closing fence: same character, same or greater length
       const closeMatch = line.match(/^(\s*)(`{3,}|~{3,})\s*$/);
       if (
         closeMatch &&
@@ -85,7 +83,6 @@ function buildCodeBlockSet(lines: string[]): Set<number> {
         inFencedBlock = false;
       }
     } else {
-      // Check for opening fence
       const openMatch = line.match(/^(\s*)(`{3,}|~{3,})/);
       if (openMatch) {
         inFencedBlock = true;
@@ -95,7 +92,6 @@ function buildCodeBlockSet(lines: string[]): Set<number> {
         continue;
       }
 
-      // Indented code block (4 spaces or tab)
       if (line.startsWith("    ") || line.startsWith("\t")) {
         skipped.add(i);
       }
@@ -115,23 +111,19 @@ function hasFromClause(raw: string): boolean {
   return afterFrom.startsWith("'") || afterFrom.startsWith('"');
 }
 
-function parseSingleImport(raw: string, line: number): ImportStatement | null {
-  // Extract module specifier using indexOf to avoid ReDoS
+function parseSingleImport(raw: string, line: number, fromLine: number): ImportStatement | null {
   const moduleSpecifier = extractModuleSpecifier(raw);
   if (moduleSpecifier === null) return null;
 
-  // Extract named imports using linear string scan instead of regex
   const namedImports = extractNamedImports(raw);
   if (namedImports === null || namedImports.length === 0) return null;
 
-  return { namedImports, moduleSpecifier, line, raw };
+  return { namedImports, moduleSpecifier, line, fromLine, raw };
 }
 
 /**
  * Extract the module specifier from an import statement.
  * e.g. `import { A } from '@/foo'` → `@/foo`
- *
- * Uses indexOf instead of regex to avoid ReDoS.
  */
 function extractModuleSpecifier(raw: string): string | null {
   const fromIdx = raw.indexOf(" from ");
@@ -150,9 +142,6 @@ function extractModuleSpecifier(raw: string): string | null {
 /**
  * Extract named imports from the `{ ... }` portion of an import statement.
  * e.g. `import { A, B as C } from '...'` → `["A", "B"]`
- *
- * Uses indexOf-based linear scan instead of a capturing regex to avoid ReDoS.
- * Returns null if no `{ }` block is found (default-only import).
  */
 function extractNamedImports(raw: string): string[] | null {
   const open = raw.indexOf("{");
@@ -168,11 +157,9 @@ function extractNamedImports(raw: string): string[] | null {
     const trimmed = entry.trim();
     if (!trimmed) continue;
 
-    // Handle "X as Y" → take the original export name X
     const asIdx = trimmed.indexOf(" as ");
     const name = asIdx !== -1 ? trimmed.slice(0, asIdx).trim() : trimmed;
 
-    // Validate: must be a plain identifier
     if (/^\w+$/.test(name)) names.push(name);
   }
 

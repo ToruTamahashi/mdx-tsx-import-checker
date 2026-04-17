@@ -56,10 +56,14 @@ export function checkFile(filePath: string, options: CheckOptions = {}): CheckEr
 
     if (stat === null || stat.isDirectory()) {
       log(`    ${stat === null ? "NOT FOUND" : "RESOLVED TO DIRECTORY (no index file)"} → error`);
+      // Report the error on the `from "..."` line so the underline
+      // appears on the module specifier rather than `import {`
+      const fromLineText = lines[imp.fromLine] ?? "";
+      const fromIdx = fromLineText.indexOf("from ");
       errors.push({
         file: filePath,
-        line: imp.line + 1,
-        column: 0,
+        line: imp.fromLine + 1,
+        column: fromIdx >= 0 ? fromIdx + 1 : 0,
         message: `Cannot find module '${imp.moduleSpecifier}' (resolved to: ${resolvedPath})`,
       });
       continue;

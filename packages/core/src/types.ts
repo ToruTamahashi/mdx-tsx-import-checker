@@ -5,8 +5,10 @@
 export interface ImportStatement {
   namedImports: string[];
   moduleSpecifier: string;
-  /** 0-based line number */
+  /** 0-based line number of the first line of the import statement */
   line: number;
+  /** 0-based line number of the `from "..."` part (may differ from line in multi-line imports) */
+  fromLine: number;
   raw: string;
 }
 
