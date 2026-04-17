@@ -16,6 +16,9 @@ interface CheckError {
   message: string;
 }
 
+/** stdout の上限サイズ (5MB) — これを超えたらプロセスを強制終了する */
+const MAX_STDOUT_BYTES = 5 * 1024 * 1024;
+
 // -----------------------------------------------------------------------
 // Extension entry points
 // -----------------------------------------------------------------------
@@ -77,88 +80,146 @@ function validate(
   }
 
   const workspaceRoot = getWorkspaceRoot(doc);
+  const localBin = findLocalBin(workspaceRoot);
+
+  if (!localBin) {
+    vscode.window.showWarningMessage(
+      "MDX TSX Import Checker: mdx-tsx-import-checker is not installed in this project. " +
+      "Run: npm install -D mdx-tsx-import-checker",
+      "Show docs"
+    ).then((selection) => {
+      if (selection === "Show docs") {
+        vscode.env.openExternal(
+          vscode.Uri.parse("https://www.npmjs.com/package/mdx-tsx-import-checker")
+        );
+      }
+    });
+    collection.set(doc.uri, []);
+    return;
+  }
+
   const tsconfigPath = resolveConfiguredTsconfig(workspaceRoot, config);
 
-  runCli(doc.fileName, workspaceRoot, tsconfigPath)
+  runCli(localBin, doc.fileName, workspaceRoot, tsconfigPath)
     .then((errors) => {
       const diagnostics = errors.map((err) => makeDiagnostic(doc, err));
       collection.set(doc.uri, diagnostics);
     })
-    .catch(() => {
-      // CLI not found or execution failed — clear diagnostics silently
+    .catch((err: Error) => {
+      console.error(`mdx-tsx-import-checker error: ${err.message}`);
       collection.set(doc.uri, []);
     });
+}
+
+// -----------------------------------------------------------------------
+// CLI binary resolution
+// -----------------------------------------------------------------------
+
+/**
+ * ローカルの node_modules/.bin を探す。
+ *
+ * 探索範囲を workspaceRoot 自身に限定する。
+ * monorepo で親の node_modules も必要な場合は、
+ * VSCode が認識している workspaceFolders の最上位までに制限する。
+ */
+function findLocalBin(workspaceRoot: string | null): string | null {
+  if (!workspaceRoot) return null;
+
+  // 探索の上限: VSCode のワークスペースフォルダの中で最も上位のパス
+  const searchCeiling = getWorkspaceCeiling();
+
+  let dir = workspaceRoot;
+  const fsRoot = path.parse(dir).root;
+
+  while (true) {
+    const bin = path.join(dir, "node_modules", ".bin", "mdx-tsx-import-checker");
+    if (fs.existsSync(bin)) return bin;
+
+    // 上限に達したら終了
+    if (dir === searchCeiling || dir === fsRoot) break;
+    dir = path.dirname(dir);
+  }
+
+  return null;
+}
+
+/**
+ * VSCode が認識しているワークスペースフォルダのうち最も上位のパスを返す。
+ * これ以上は遡らないことでプロジェクト外のバイナリ実行を防ぐ。
+ */
+function getWorkspaceCeiling(): string {
+  const folders = vscode.workspace.workspaceFolders;
+  if (!folders || folders.length === 0) return path.parse(process.cwd()).root;
+
+  // 最も短いパス（= 最上位）を ceiling とする
+  return folders
+    .map((f) => f.uri.fsPath)
+    .reduce((shortest, current) =>
+      current.length < shortest.length ? current : shortest
+    );
 }
 
 // -----------------------------------------------------------------------
 // CLI runner
 // -----------------------------------------------------------------------
 
-/**
- * Resolve the CLI command to run.
- *
- * Priority:
- *   1. Local node_modules/.bin (npm install -D mdx-tsx-import-checker)
- *   2. npx (no local install required)
- */
-function buildCliCommand(
+function runCli(
+  localBin: string,
   filePath: string,
   workspaceRoot: string | null,
   tsconfigPath: string | undefined
-): { cmd: string; args: string[] } {
-  const localBin = workspaceRoot
-    ? path.join(workspaceRoot, "node_modules", ".bin", "mdx-tsx-import-checker")
-    : null;
-  const hasLocalBin = localBin !== null && fs.existsSync(localBin);
-
-  const cliArgs: string[] = [
+): Promise<CheckError[]> {
+  const args: string[] = [
     filePath,
     "--format", "json",
     "--no-color",
     ...(tsconfigPath ? ["--tsconfig", tsconfigPath] : []),
   ];
 
-  if (hasLocalBin) {
-    return { cmd: localBin, args: cliArgs };
-  }
-
-  return {
-    cmd: "npx",
-    args: ["--yes", "mdx-tsx-import-checker", ...cliArgs],
-  };
-}
-
-function runCli(
-  filePath: string,
-  workspaceRoot: string | null,
-  tsconfigPath: string | undefined
-): Promise<CheckError[]> {
-  const { cmd, args } = buildCliCommand(filePath, workspaceRoot, tsconfigPath);
   const cwd = workspaceRoot ?? path.dirname(filePath);
 
   return new Promise((resolve, reject) => {
-    let stdout = "";
+    let stdoutBuf = "";
+    let stdoutBytes = 0;
     let stderr = "";
 
-    const child = spawn(cmd, args, {
+    // Windows でも shell: false で動作させるため、
+    // cmd.exe 経由で明示的に組み立てる
+    const spawnCmd = process.platform === "win32" ? "cmd.exe" : localBin;
+    const spawnArgs = process.platform === "win32"
+      ? ["/c", localBin, ...args]
+      : args;
+
+    const child = spawn(spawnCmd, spawnArgs, {
       cwd,
-      shell: process.platform === "win32",
+      shell: false, // パスインジェクションリスクを排除
     });
 
-    child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-    child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    child.stdout.on("data", (chunk: Buffer) => {
+      stdoutBytes += chunk.length;
+      // stdout が上限を超えたらプロセスを強制終了
+      if (stdoutBytes > MAX_STDOUT_BYTES) {
+        child.kill();
+        reject(new Error("mdx-tsx-import-checker: stdout exceeded size limit (5MB)"));
+        return;
+      }
+      stdoutBuf += chunk.toString();
+    });
+
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
 
     child.on("close", (code) => {
-      // exit code 0 = no errors, 1 = errors found — both are valid
+      // exit code 0 = no errors, 1 = errors found — どちらも正常終了
       if (code !== 0 && code !== 1) {
-        reject(new Error(`mdx-tsx-import-checker exited with code ${code}: ${stderr}`));
+        reject(new Error(`exited with code ${code}: ${stderr}`));
         return;
       }
       try {
-        const errors = JSON.parse(stdout) as CheckError[];
+        const errors = JSON.parse(stdoutBuf) as CheckError[];
         resolve(errors);
       } catch {
-        // Empty output or non-JSON (e.g. npx install prompt) — treat as no errors
         resolve([]);
       }
     });
@@ -186,7 +247,6 @@ function makeDiagnostic(doc: vscode.TextDocument, err: CheckError): vscode.Diagn
   return diag;
 }
 
-/** Extract the length of the symbol name from messages like `'Foo' is not exported...` */
 function extractSymbolLength(message: string): number {
   const m = message.match(/^'(\w+)'/);
   return m ? m[1].length : 1;
@@ -200,7 +260,6 @@ function getWorkspaceRoot(doc: vscode.TextDocument): string | null {
   const folder = vscode.workspace.getWorkspaceFolder(doc.uri);
   if (folder) return folder.uri.fsPath;
 
-  // Fallback: walk up from the file's directory
   let dir = path.dirname(doc.fileName);
   const root = path.parse(dir).root;
   while (dir !== root) {
